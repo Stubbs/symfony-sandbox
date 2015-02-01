@@ -1,0 +1,68 @@
+---
+- hosts: all
+  sudo: true
+  tasks:
+    - shell: sudo sh -c "echo options single-request >> /etc/resolv.conf"
+    
+    - name: Install PHP etc
+      apt: name={{item}}
+      with_items:
+        - php5-fpm
+        - php5-cli
+        - nginx
+        - php5-pgsql
+        - postgresql-9.3
+        - python-psycopg2
+      sudo: true
+
+    - name: Install nginx config
+      copy: src=roles/common/files/default dest=/etc/nginx/conf.d/default.conf
+      notify:
+        - Restart nginx
+
+    - name: Remove default nginx config
+      file: path=/etc/nginx/sites-enabled/default state=absent
+      notify:
+        - Restart nginx
+
+    - name: Make the cache directory
+      file: path=/var/run/symfony/er/ owner=www-data group=www-data state=directory mode=0777
+
+    - name: Make the log directory
+      file: path=/var/log/symfony/ owner=www-data group=www-data state=directory mode=0777
+
+    - name: Create Postgres DB
+      sudo_user: postgres
+      sudo: yes
+      postgresql_db: name=er encoding='UTF-8'
+
+    - name: Create Postgres User
+      sudo_user: postgres
+      sudo: yes
+      postgresql_user: name=symfony password=lolpassword db=er
+
+    - name: Setup DB Permissions.
+      sudo_user: postgres
+      sudo: yes
+      postgresql_privs: >
+        db=er
+        privs=ALL
+        type=database
+        role=symfony
+
+    - name: Refresh App Database.
+      command: app/console doctrine:schema:update
+      args:
+        chdir: /vagrant
+      notify:
+        - Fix log permissions
+
+  handlers:
+    - name: Restart nginx
+      action: service name=nginx state=restarted
+    - name: Fix log permissions
+      action: file path={{item}} owner=www-data group=www-data mode=0777 recurse=yes
+      with_items:
+        - /var/log/symfony
+        - /var/run/symfony
+      sudo: yes
